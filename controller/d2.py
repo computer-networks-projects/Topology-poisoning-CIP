@@ -37,7 +37,7 @@ from random import shuffle, random
 
 
 log = core.getLogger()
-
+link_latency  = {}
 
 class LLDPSender (object):
   """
@@ -124,8 +124,20 @@ class LLDPSender (object):
     packet = self.create_packet_out(dpid, port_num, port_addr)
     self._next_cycle.insert(0, LLDPSender.SendItem(dpid, port_num, packet))
     if set_timer: self._set_timer()
+    """    
+    arr=[dpid, port_num]
+    index = tuple(arr)
+    if index not in link_latency:
+      link_latency[index] = time.time()
+      log.info("PACKET OUT - new source\n")
+    else:
+      link_latency[index]=time.time()
+      log.info("PACKET OUT - Just updated existing\n")
+    for key,value in link_latency.items():
+      log.info("%s | % s - length: %d", key,value, len(key))
+    """
     core.openflow.sendToDPID(dpid, packet) # Send one immediately
-
+  
   def _set_timer (self):
     if self._timer: self._timer.cancel()
     self._timer = None
@@ -163,6 +175,18 @@ class LLDPSender (object):
         #shuffle(self._this_cycle)
       item = self._this_cycle.pop(0)
       self._next_cycle.append(item)
+    
+      arr=[item.dpid, item.port_num]
+      index = tuple(arr)
+      if index not in link_latency:
+        link_latency[index] = time.time()
+        log.info("PACKET OUT - new source\n")
+      else:
+        link_latency[index]=time.time()
+        log.info("PACKET OUT - Just updated existing\n")
+      for key,value in link_latency.items():
+        log.info("%s | % s - length: %d", key,value, len(key))
+
       core.openflow.sendToDPID(item.dpid, item.packet)
 
   def create_packet_out (self, dpid, port_num, port_addr):
@@ -173,6 +197,18 @@ class LLDPSender (object):
     po = of.ofp_packet_out(action = of.ofp_action_output(port=port_num))
     po.data = eth.pack()
     return po.pack()
+    """
+    arr=[dpid, port_num]
+    index = tuple(arr)
+    if index not in link_latency:
+      link_latency[index] = time.time()
+      log.info("PACKET OUT - new source\n")
+    else:
+      link_latency[index]=time.time() 
+      log.info("PACKET OUT - Just updated existing\n")
+    for key,value in link_latency.items():
+      log.info("%s | % s - length: %d", key,value, len(key))
+    """
 
   @staticmethod
   def _create_discovery_packet (dpid, port_num, port_addr, ttl):
@@ -468,7 +504,24 @@ class Discovery (EventMixin):
 
     link = Discovery.Link(originatorDPID, originatorPort, event.dpid,
                           event.port)
+    
+    arr1 = [originatorDPID, originatorPort, event.dpid, event.port]
+    for key,value in link_latency.items():
+      if len(key)==4:
+	continue
+      elif len(key)==2 and key[0]==arr1[0] and key[1]==arr1[1]: #match
+	array=list(key)
+	array.append(event.dpid)
+	array.append(event.port)
+	new_index=tuple(array)
+	#modify existing key
+	link_latency[new_index]=link_latency.pop(key)
+	link_latency[new_index]=time.time()-value
 
+    log.info("PACKET IN - link latency updated\n")
+    for key,value in link_latency.items():
+         log.info("%s | % s", key,value)
+ 
     if link not in self.adjacency:
       self.adjacency[link] = time.time()
       log.info('link detected: %s', link)
@@ -641,3 +694,4 @@ def launch (no_flow = False, explicit_drop = True, link_timeout = None,
   core.registerNew(Discovery, explicit_drop=explicit_drop,
                    install_flow=install_flow, link_timeout=link_timeout,
                    eat_early_packets=eat_early_packets)
+
